@@ -29,23 +29,37 @@ def fetch_ratios(symbol):
     url = f"https://stockanalysis.com/stocks/{symbol.lower()}/financials/ratios/"
     headers = {"User-Agent": "Mozilla/5.0"}
 
-    # retry 機制（最多三次）
+    html = None
     for attempt in range(3):
         try:
-            r = requests.get(url, headers=headers, timeout=20)
-            if r.status_code == 200:
+            r = requests.get(url, headers=headers, timeout=25)
+            if r.status_code == 200 and "<table" in r.text:
+                html = r.text
                 break
-        except Exception:
-            time.sleep(3)
-    else:
-        print(f"⚠️ {symbol}: 無法連線")
+            else:
+                print(f"⚠️ {symbol}: 第 {attempt+1} 次嘗試失敗，等待重試...")
+                time.sleep(5)
+        except Exception as e:
+            print(f"⚠️ {symbol}: 嘗試失敗 {e}")
+            time.sleep(5)
+
+    if not html:
+        print(f"❌ {symbol}: 連線三次仍失敗，略過")
         return None
 
+    # 先嘗試 pandas 解析
     try:
-        tables = pd.read_html(r.text)
+        tables = pd.read_html(html)
     except Exception:
-        print(f"⚠️ {symbol}: 找不到表格")
-        return None
+        tables = []
+
+    # 若 pandas 沒抓到，用 BeautifulSoup 補抓
+    if not tables:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, "html.parser")
+        raw_table = soup.find("table")
+        if raw_table:
+            tables = [pd.read_html(str(raw_table))[0]]
 
     if not tables:
         print(f"⚠️ {symbol}: 找不到表格")
@@ -55,8 +69,10 @@ def fetch_ratios(symbol):
 
     # 壓平多層標題
     if isinstance(df.columns, pd.MultiIndex):
-        df.columns = [" ".join([str(c) for c in col if c and c != "nan"]).strip()
-                      for col in df.columns]
+        df.columns = [
+            " ".join([str(c) for c in col if c and c != "nan"]).strip()
+            for col in df.columns
+        ]
 
     df.rename(columns={df.columns[0]: "Metric"}, inplace=True)
 
@@ -69,13 +85,9 @@ def fetch_ratios(symbol):
     # 轉置
     df = df.set_index("Metric").T.reset_index().rename(columns={"index": "Date_1"})
 
-    # ✅ 日期清理：只保留 YYYY/MM/DD 格式
+    # 日期清理
     def clean_date(x):
         x = str(x)
-        # 嘗試找 YYYY-MM-DD 或 YYYY年MM月DD日 或 Dec 31 2024
-        m = re.search(r"(\d{4}[-/]\d{1,2}[-/]\d{1,2})", x)
-        if m:
-            return m.group(1).replace("-", "/")
         m = re.search(r"([A-Za-z]{3,9}\s\d{1,2}\s\d{4})", x)
         if m:
             try:
@@ -87,8 +99,8 @@ def fetch_ratios(symbol):
 
     df["Date_1"] = df["Date_1"].apply(clean_date)
     df = df.loc[:, ~df.columns.duplicated()].fillna("")
-
     return df
+
 
 
 # -------------------------------------------------------
