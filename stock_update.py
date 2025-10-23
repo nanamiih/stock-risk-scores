@@ -1,14 +1,14 @@
 import pandas as pd
-import requests, re
+import requests, re, time
 from openpyxl import Workbook
 
 # -------------------------------------------------------
-# 公司代碼與名稱（含 Norsk Hydro）
+# 公司代碼與名稱
 # -------------------------------------------------------
 TICKERS = {
     "AA": "Alcoa",
     "RIO": "Rio Tinto",
-    "NHYDY": "Norsk Hydro",  # ✅ 正確代碼
+    "NHYDY": "Norsk Hydro",  # ✅ 使用美股 ADR 代碼
     "RS": "Reliance Steel & Aluminum",
     "KALU": "Kaiser Aluminum",
     "RYI": "Ryerson Holding"
@@ -22,20 +22,27 @@ TARGET = {
 }
 
 # -------------------------------------------------------
-# 將 ticker 轉成 stockanalysis 網址格式
+# 統一轉換代碼格式
 # -------------------------------------------------------
 def format_symbol(symbol):
     return symbol.lower().replace(":", "-")
 
 # -------------------------------------------------------
-# 抓財報比率
+# 抓取財報比率（含防斷線重試 + 日期清理）
 # -------------------------------------------------------
 def fetch_ratios(symbol):
     url = f"https://stockanalysis.com/stocks/{format_symbol(symbol)}/financials/ratios/"
     headers = {"User-Agent": "Mozilla/5.0"}
-    r = requests.get(url, headers=headers)
-    if r.status_code != 200:
-        print(f"⚠️ {symbol}: 無法連線 ({r.status_code})")
+
+    for attempt in range(3):  # 最多重試三次
+        try:
+            r = requests.get(url, headers=headers, timeout=20)
+            if r.status_code == 200:
+                break
+        except Exception:
+            time.sleep(3)
+    else:
+        print(f"⚠️ {symbol}: 無法連線")
         return None
 
     tables = pd.read_html(r.text)
@@ -45,48 +52,52 @@ def fetch_ratios(symbol):
 
     df = tables[0].copy()
 
-    # 壓平多層標題（避免重複欄位）
+    # 壓平多層標題
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = [
             " ".join([str(c) for c in col if c and c != "nan"]).strip()
             for col in df.columns
         ]
 
-    # 第一欄改名為 Metric
+    # 第一欄改名
     df.rename(columns={df.columns[0]: "Metric"}, inplace=True)
 
-    # 篩出目標指標
+    # 篩選指標
     df = df[df["Metric"].str.contains("|".join(TARGET.keys()), case=False, na=False)]
     df["Metric"] = df["Metric"].apply(
         lambda x: next((v for k, v in TARGET.items() if k.lower() in x.lower()), x)
     )
 
-    # 清理符號與轉置
+    # 清理空白與符號
     df = df.replace(["Upgrade", "-", "—"], pd.NA)
+
+    # 轉置
     df = df.set_index("Metric").T.reset_index().rename(columns={"index": "Date_1"})
 
-    # 日期格式整理
-    df["Date_1"] = df["Date_1"].apply(lambda x: re.sub(r"[\(\)'\"]+", "", str(x)).strip())
+    # 日期格式清理：只保留 YYYY/MM/DD
+    df["Date_1"] = df["Date_1"].apply(lambda x: re.findall(r"\d{4}.*\d{2,}", str(x)))
+    df["Date_1"] = df["Date_1"].apply(
+        lambda x: x[0] if x else ""
+    )
+    df["Date_1"] = df["Date_1"].apply(lambda x: re.sub(r"[^0-9/]", "", x).strip())
 
-    # 處理重複欄位（例如重複 EBITDA、Debt Ratio）→ 保留第一個非空值
+    # 移除重複欄位，只保留第一個
     df = df.loc[:, ~df.columns.duplicated()]
-    df = df.groupby(df.columns, axis=1).first()
 
-    # 清除空值並保持順序
     df = df.fillna("")
     return df
 
 # -------------------------------------------------------
-# 抓 Z / F Score
+# 抓取 Z/F Score
 # -------------------------------------------------------
 def fetch_scores(symbol):
     url = f"https://stockanalysis.com/stocks/{format_symbol(symbol)}/statistics/"
     headers = {"User-Agent": "Mozilla/5.0"}
-    r = requests.get(url, headers=headers)
-    if r.status_code != 200:
-        return {"Altman Z-Score": "", "Piotroski F-Score": ""}
 
     try:
+        r = requests.get(url, headers=headers, timeout=20)
+        if r.status_code != 200:
+            return {"Altman Z-Score": "", "Piotroski F-Score": ""}
         df = pd.concat(pd.read_html(r.text), ignore_index=True)
         df.columns = ["Metric", "Value"]
         z = df[df["Metric"].str.contains("Altman Z", na=False)]["Value"].values
@@ -113,12 +124,10 @@ for t, name in TICKERS.items():
         print(f"⚠️ {name} 無資料，略過")
         continue
 
-    # 加上 Z/F Score 與 Ticker
     ratios["Ticker"] = t
     ratios["Altman Z-Score"] = scores.get("Altman Z-Score", "")
     ratios["Piotroski F-Score"] = scores.get("Piotroski F-Score", "")
 
-    # 指定欄位順序（只要一組）
     final_cols = [
         "Date_1", "EBITDA", "Debt / Equity Ratio",
         "Inventory Turnover", "Current Ratio",
@@ -126,7 +135,6 @@ for t, name in TICKERS.items():
     ]
     ratios = ratios[[c for c in final_cols if c in ratios.columns]]
 
-    # 寫入 Excel
     sheet = wb.create_sheet(title=name[:30])
     sheet.append(ratios.columns.tolist())
     for row in ratios.itertuples(index=False):
