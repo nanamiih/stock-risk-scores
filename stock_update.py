@@ -1,27 +1,10 @@
-# ============================================
-# stock_update.py
-# 自動抓取財務比率 + Z/F Score 並輸出 Excel
-# 適用於 GitHub Actions 無 Notebook 環境
-# ============================================
-
-import os
-import sys
-import re
-import requests
 import pandas as pd
-from bs4 import BeautifulSoup
+import requests, re
 from openpyxl import Workbook
 
-# ---- 自動安裝必要套件 (僅第一次需要) ----
-def ensure_packages():
-    try:
-        import lxml, html5lib, openpyxl, bs4, requests, pandas
-    except ImportError:
-        os.system("pip install pandas requests lxml html5lib beautifulsoup4 openpyxl")
-
-ensure_packages()
-
-# ---- 公司清單 ----
+# -------------------------------------------------------
+# 公司代碼
+# -------------------------------------------------------
 TICKERS = {
     "AA": "Alcoa",
     "RIO": "Rio Tinto",
@@ -31,35 +14,35 @@ TICKERS = {
     "RYI": "Ryerson Holding"
 }
 
-# ---- 指標 ----
+# 目標指標
 TARGET = {
-    "Current Ratio": "Current Ratio",
-    "Debt": "Debt / Equity Ratio",
     "EBITDA": "EBITDA",
-    "Free Cash Flow": "Free Cash Flow (Millions)",
+    "Debt": "Debt / Equity Ratio",
     "Inventory Turnover": "Inventory Turnover",
-    "Net Income": "Net Income (Millions)"
+    "Current Ratio": "Current Ratio"
 }
 
-# ---- 抓取財務比率 ----
+# -------------------------------------------------------
+# 抓取財報比率（annual）
+# -------------------------------------------------------
 def fetch_ratios(symbol):
     url = f"https://stockanalysis.com/stocks/{symbol.lower()}/financials/ratios/"
     headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        html = requests.get(url, headers=headers).text
-        tables = pd.read_html(html)
-    except Exception as e:
-        print(f"⚠️ {symbol} 抓取失敗: {e}")
+    r = requests.get(url, headers=headers)
+    if r.status_code != 200:
+        print(f"⚠️ {symbol}: 無法連線 ({r.status_code})")
         return None
 
-    if not tables:
-        print(f"⚠️ {symbol} 找不到表格")
+    try:
+        tables = pd.read_html(r.text)
+    except Exception as e:
+        print(f"⚠️ {symbol}: 無法解析表格 ({e})")
         return None
 
     df = tables[0]
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = [
-            " ".join([str(c) for c in col if c and c != 'nan']).strip()
+            " ".join([str(c) for c in col if c and c != "nan"]).strip()
             for col in df.columns
         ]
     df.rename(columns={df.columns[0]: "Metric"}, inplace=True)
@@ -67,31 +50,40 @@ def fetch_ratios(symbol):
     df["Metric"] = df["Metric"].apply(
         lambda x: next((v for k, v in TARGET.items() if k.lower() in x.lower()), x)
     )
+
     df = df.replace(["Upgrade", "-", "—"], pd.NA)
     df = df.set_index("Metric").T.reset_index().rename(columns={"index": "Date_1"})
-    df["Date_1"] = df["Date_1"].apply(lambda x: re.sub(r"[\(\)'\"]+", "", str(x)).strip())
-    df["Ticker"] = symbol
-    return df.fillna("")
+    df["Date_1"] = df["Date_1"].apply(lambda x: re.sub(r"[^\w\s\-\/]", "", str(x)).strip())
 
-# ---- 抓取 Z / F Score ----
+    # 保留要的欄位
+    df = df[["Date_1"] + list(TARGET.values())]
+    return df
+
+# -------------------------------------------------------
+# 抓 Z / F 分數
+# -------------------------------------------------------
 def fetch_scores(symbol):
     url = f"https://stockanalysis.com/stocks/{symbol.lower()}/statistics/"
     headers = {"User-Agent": "Mozilla/5.0"}
+    r = requests.get(url, headers=headers)
+    if r.status_code != 200:
+        return {"Altman Z-Score": "", "Piotroski F-Score": ""}
     try:
-        html = requests.get(url, headers=headers).text
-        df = pd.concat(pd.read_html(html), ignore_index=True)
+        tables = pd.read_html(r.text)
+        df = pd.concat(tables, ignore_index=True)
+        df.columns = ["Metric", "Value"]
+        z = df[df["Metric"].str.contains("Altman Z", na=False)]["Value"].values
+        f = df[df["Metric"].str.contains("Piotroski F", na=False)]["Value"].values
+        return {
+            "Altman Z-Score": z[0] if len(z) else "",
+            "Piotroski F-Score": f[0] if len(f) else ""
+        }
     except Exception:
         return {"Altman Z-Score": "", "Piotroski F-Score": ""}
 
-    df.columns = ["Metric", "Value"]
-    z = df[df["Metric"].str.contains("Altman Z", na=False)]["Value"].values
-    f = df[df["Metric"].str.contains("Piotroski F", na=False)]["Value"].values
-    return {
-        "Altman Z-Score": z[0] if len(z) else "",
-        "Piotroski F-Score": f[0] if len(f) else ""
-    }
-
-# ---- 寫入 Excel ----
+# -------------------------------------------------------
+# 寫入 Excel
+# -------------------------------------------------------
 wb = Workbook()
 wb.remove(wb.active)
 
@@ -104,18 +96,23 @@ for t, name in TICKERS.items():
         print(f"⚠️ {name} 無資料，略過")
         continue
 
-    sheet = wb.create_sheet(title=name[:30])
-    sheet.append(["Altman Z-Score", scores["Altman Z-Score"]])
-    sheet.append(["Piotroski F-Score", scores["Piotroski F-Score"]])
-    sheet.append([])
+    # Z/F Score 與 Ticker 放最後
+    ratios["Ticker"] = t
+    ratios["Altman Z-Score"] = scores.get("Altman Z-Score", "")
+    ratios["Piotroski F-Score"] = scores.get("Piotroski F-Score", "")
 
-    # 寫入表格內容
-    clean_df = pd.DataFrame(ratios).fillna("")
-    sheet.append(clean_df.columns.tolist())
-    for row in clean_df.itertuples(index=False):
+    # 欄位順序
+    final_cols = ["Date_1", "EBITDA", "Debt / Equity Ratio", "Inventory Turnover",
+                  "Current Ratio", "Ticker", "Altman Z-Score", "Piotroski F-Score"]
+    ratios = ratios[[c for c in final_cols if c in ratios.columns]]
+
+    # 寫入工作表
+    sheet = wb.create_sheet(title=name[:30])
+    sheet.append(ratios.columns.tolist())
+    for row in ratios.itertuples(index=False):
         sheet.append(row)
 
     print(f"✅ {name} 完成")
 
 wb.save("Stock_Risk_Scores.xlsx")
-print("✅ 已輸出 Stock_Risk_Scores.xlsx")
+print("✅ 已輸出 Stock_Risk_Scores.xlsx ✅")
