@@ -1,0 +1,35 @@
+name: Auto Update Stock Risk Scores
+
+on:
+  schedule:
+    - cron: "0 13 * * *"  # 每天台灣時間晚上9點 (UTC+13=台灣)
+  workflow_dispatch:      # 手動執行按鈕
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run stock update script
+        run: |
+          python stock_update.py
+
+      - name: Commit and push updated Excel
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Stock_Risk_Scores.xlsx
+          git commit -m "Auto update stock data"
+          git push
