@@ -26,66 +26,60 @@ TARGET = {
 # 抓取財報比率
 # -------------------------------------------------------
 def fetch_ratios(symbol):
-    url = f"https://stockanalysis.com/stocks/{symbol.lower()}/financials/ratios/"
+    # 先嘗試 ratios 頁面
+    urls = [
+        f"https://stockanalysis.com/stocks/{symbol.lower()}/financials/ratios/",
+        f"https://stockanalysis.com/stocks/{symbol.lower()}/financials/quarterly/"
+    ]
     headers = {"User-Agent": "Mozilla/5.0"}
 
     html = None
-    for attempt in range(3):
-        try:
-            r = requests.get(url, headers=headers, timeout=25)
-            if r.status_code == 200 and "<table" in r.text:
-                html = r.text
-                break
-            else:
-                print(f"⚠️ {symbol}: 第 {attempt+1} 次嘗試失敗，等待重試...")
-                time.sleep(5)
-        except Exception as e:
-            print(f"⚠️ {symbol}: 嘗試失敗 {e}")
-            time.sleep(5)
+    for url in urls:
+        for attempt in range(3):
+            try:
+                r = requests.get(url, headers=headers, timeout=25)
+                if r.status_code == 200 and "<table" in r.text:
+                    html = r.text
+                    print(f"✅ {symbol}: 使用 {url.split('/')[-3]} 資料成功")
+                    break
+                else:
+                    print(f"⚠️ {symbol}: 第 {attempt+1} 次嘗試失敗 {url}")
+                    time.sleep(3)
+            except Exception as e:
+                print(f"⚠️ {symbol}: 連線錯誤 {e}")
+                time.sleep(3)
+        if html:
+            break
 
     if not html:
-        print(f"❌ {symbol}: 連線三次仍失敗，略過")
+        print(f"❌ {symbol}: 所有頁面都無法取得表格")
         return None
 
-    # 先嘗試 pandas 解析
     try:
         tables = pd.read_html(html)
     except Exception:
         tables = []
 
-    # 若 pandas 沒抓到，用 BeautifulSoup 補抓
     if not tables:
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html, "html.parser")
-        raw_table = soup.find("table")
-        if raw_table:
-            tables = [pd.read_html(str(raw_table))[0]]
-
-    if not tables:
-        print(f"⚠️ {symbol}: 找不到表格")
+        print(f"⚠️ {symbol}: 找不到表格內容")
         return None
 
     df = tables[0].copy()
 
-    # 壓平多層標題
+    # 壓平標題
     if isinstance(df.columns, pd.MultiIndex):
-        df.columns = [
-            " ".join([str(c) for c in col if c and c != "nan"]).strip()
-            for col in df.columns
-        ]
+        df.columns = [" ".join([str(c) for c in col if c and c != "nan"]).strip()
+                      for col in df.columns]
 
     df.rename(columns={df.columns[0]: "Metric"}, inplace=True)
-
-    # 篩選欄位
     df = df[df["Metric"].str.contains("|".join(TARGET.keys()), case=False, na=False)]
     df["Metric"] = df["Metric"].apply(
         lambda x: next((v for k, v in TARGET.items() if k.lower() in x.lower()), x)
     )
 
-    # 轉置
     df = df.set_index("Metric").T.reset_index().rename(columns={"index": "Date_1"})
 
-    # 日期清理
+    # 日期格式統一 YYYY/MM/DD
     def clean_date(x):
         x = str(x)
         m = re.search(r"([A-Za-z]{3,9}\s\d{1,2}\s\d{4})", x)
@@ -100,6 +94,7 @@ def fetch_ratios(symbol):
     df["Date_1"] = df["Date_1"].apply(clean_date)
     df = df.loc[:, ~df.columns.duplicated()].fillna("")
     return df
+
 
 
 
