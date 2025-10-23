@@ -10,7 +10,9 @@ get_ipython().run_line_magic('pip', 'install pandas requests lxml openpyxl')
 # In[11]:
 
 
-pip install html5lib lxml beautifulsoup4
+import os
+os.system("pip install html5lib lxml beautifulsoup4")
+
 
 
 # In[14]:
