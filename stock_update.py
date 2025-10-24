@@ -82,17 +82,30 @@ def fetch_ratios(symbol, url):
     # 轉置表格
     df = df.set_index("Metric").T.reset_index().rename(columns={"index": "Date_1"})
 
-    # 日期清理（保持 YYYY/MM/DD）
+   # 日期清理（保持 YYYY/MM/DD）
+    from datetime import datetime
+    
     def clean_date(x):
         x = str(x)
+        
+        # 嘗試解析完整英文日期（例: Oct 25 2025）
         m = re.search(r"([A-Za-z]{3,9}\s\d{1,2}\s\d{4})", x)
         if m:
             try:
                 return pd.to_datetime(m.group(1)).strftime("%Y/%m/%d")
             except:
                 pass
+    
+        today_str = datetime.today().strftime("%Y/%m/%d")
         m = re.search(r"(\d{4})", x)
-        return f"{m.group(1)}/12/31" if m else ""
+        
+        # 若是"Current"、"TTM"、"Oct"、"Sep"等 → 使用今天日期
+        if any(k in x for k in ["Current", "TTM", "Oct", "Sep"]):
+            return today_str
+        elif m:
+            return f"{m.group(1)}/12/31"
+        else:
+            return today_str
 
     df["Date_1"] = df["Date_1"].apply(clean_date)
     df = df.loc[:, ~df.columns.duplicated()].fillna("")
