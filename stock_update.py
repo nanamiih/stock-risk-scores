@@ -12,7 +12,15 @@ TICKERS = {
     "NHY": {"name": "Norsk Hydro", "url": "https://stockanalysis.com/quote/osl/NHY/financials/ratios/"},  # ✅ 歐洲市場
     "RS": {"name": "Reliance Steel & Aluminum", "url": "https://stockanalysis.com/stocks/rs/financials/ratios/"},
     "KALU": {"name": "Kaiser Aluminum", "url": "https://stockanalysis.com/stocks/kalu/financials/ratios/"},
-    "RYI": {"name": "Ryerson Holding", "url": "https://stockanalysis.com/stocks/ryi/financials/ratios/"}
+    "RYI": {"name": "Ryerson Holding", "url": "https://stockanalysis.com/stocks/ryi/financials/ratios/"},
+    # -------- Suppliers --------
+    "ULTR": {"name": "Ultra Clean Holdings", "url": "https://stockanalysis.com/stocks/uctt/financials/ratios/", "category": "Supplier"},
+    "FOX": {"name": "Foxconn", "url": "https://stockanalysis.com/stocks/hnhaf/financials/ratios/", "category": "Supplier"},
+    "FERRO": {"name": "Ferrotec Holdings", "url": "https://stockanalysis.com/stocks/frtcf/financials/ratios/", "category": "Supplier"},
+    "BHE": {"name": "Benchmark Electronics", "url": "https://stockanalysis.com/stocks/bhe/financials/ratios/", "category": "Supplier"},
+    "CLS": {"name": "Celestica", "url": "https://stockanalysis.com/stocks/clst/financials/ratios/", "category": "Supplier"},
+    "FLEX": {"name": "Flex Ltd", "url": "https://stockanalysis.com/stocks/flex/financials/ratios/", "category": "Supplier"},
+    "MKS": {"name": "MKS Instruments", "url": "https://stockanalysis.com/stocks/mksi/financials/ratios/", "category": "Supplier"}
 }
 
 TARGET = {
