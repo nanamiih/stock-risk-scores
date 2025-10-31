@@ -155,6 +155,6 @@ final_df = final_df[[c for c in final_cols if c in final_df.columns]]
 # -------------------------------------------------------
 # 輸出 Excel
 # -------------------------------------------------------
-output_file = "Stock_Risk_Scores_Combined.xlsx"
+output_file = "Stock_Risk_Scores.xlsx"
 final_df.to_excel(output_file, index=False)
 print(f"✅ 已輸出單一工作表：{output_file}")
