@@ -7,15 +7,18 @@ from datetime import datetime
 # 公司代碼與分類
 # -------------------------------------------------------
 TICKERS = {
-    # Mills
+    #mills
     "AA": {"name": "Alcoa", "url": "https://stockanalysis.com/stocks/aa/financials/ratios/", "category": "mills"},
     "RIO": {"name": "Rio Tinto", "url": "https://stockanalysis.com/stocks/rio/financials/ratios/", "category": "mills"},
     "NHY": {"name": "Norsk Hydro", "url": "https://stockanalysis.com/quote/osl/NHY/financials/ratios/", "category": "mills"},
-    # Distributor
+
+    #distributors
     "RS": {"name": "Reliance", "url": "https://stockanalysis.com/stocks/rs/financials/ratios/", "category": "distributor"},
     "KALU": {"name": "Kaiser", "url": "https://stockanalysis.com/stocks/kalu/financials/ratios/", "category": "distributor"},
     "RYI": {"name": "Ryerson", "url": "https://stockanalysis.com/stocks/ryi/financials/ratios/", "category": "distributor"},
-    # Supplier
+    "BVB:ALR": {"name": "Alro Steel", "url": "https://stockanalysis.com/quote/bvb/ALR/financials/", "category": "distributor"},
+    
+    #supplier
     "SEOJIN": {"name": "Seojin", "url": "https://stockanalysis.com/stocks/seojin/financials/ratios/", "category": "supplier"},
     "ULTR": {"name": "Ultra", "url": "https://stockanalysis.com/stocks/uctt/financials/ratios/", "category": "supplier"},
     "FOX": {"name": "Foxconn", "url": "https://stockanalysis.com/stocks/hnhaf/financials/ratios/", "category": "supplier"},
@@ -49,13 +52,11 @@ def fetch_ratios(symbol, url):
             if r.status_code == 200 and "<table" in r.text:
                 html = r.text
                 break
-            print(f"⚠️ {symbol}: 第 {attempt+1} 次嘗試失敗 {url}")
-        except Exception as e:
-            print(f"⚠️ {symbol}: 嘗試失敗 ({e})")
-        time.sleep(5)
+        except Exception:
+            pass
+        time.sleep(3)
 
     if not html:
-        print(f"❌ {symbol}: 無法取得表格")
         return None
 
     try:
@@ -128,7 +129,7 @@ def fetch_scores(symbol):
 
 
 # -------------------------------------------------------
-# 主程式：整合到單一 DataFrame
+# 主程式：整合成單一表 + 過濾 "Upgrade"
 # -------------------------------------------------------
 all_data = []
 
@@ -144,10 +145,14 @@ for t, info in TICKERS.items():
     ratios["Altman Z-Score"] = scores.get("Altman Z-Score", "")
     ratios["Piotroski F-Score"] = scores.get("Piotroski F-Score", "")
     ratios["Category"] = info["category"]
-
     all_data.append(ratios)
 
 final_df = pd.concat(all_data, ignore_index=True)
+
+# 🔹 移除任何含有 "Upgrade" 的列
+final_df = final_df[~final_df.apply(lambda row: row.astype(str).str.contains("Upgrade", case=False).any(), axis=1)]
+
+# 🔹 固定欄位順序
 final_cols = ["Date_1", "EBITDA", "Debt / Equity Ratio", "Inventory Turnover",
               "Current Ratio", "Ticker", "Altman Z-Score", "Piotroski F-Score", "Category"]
 final_df = final_df[[c for c in final_cols if c in final_df.columns]]
@@ -157,4 +162,4 @@ final_df = final_df[[c for c in final_cols if c in final_df.columns]]
 # -------------------------------------------------------
 output_file = "Stock_Risk_Scores.xlsx"
 final_df.to_excel(output_file, index=False)
-print(f"✅ 已輸出單一工作表：{output_file}")
+print(f"✅ 已輸出乾淨版 Stock_Risk_Scores.xlsx（無 Upgrade 列）")
