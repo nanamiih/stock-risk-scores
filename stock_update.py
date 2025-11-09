@@ -16,15 +16,15 @@ TICKERS = {
     "RS": {"name": "Reliance", "url": "https://stockanalysis.com/stocks/rs/financials/ratios/", "category": "distributor"},
     "KALU": {"name": "Kaiser", "url": "https://stockanalysis.com/stocks/kalu/financials/ratios/", "category": "distributor"},
     "RYI": {"name": "Ryerson", "url": "https://stockanalysis.com/stocks/ryi/financials/ratios/", "category": "distributor"},
-    "BVB:ALR": {"name": "Alro Steel", "url": "https://stockanalysis.com/quote/bvb/ALR/financials/", "category": "distributor"},
-    
+    "BVB:ALR": {"name": "Alro Steel", "url": "https://stockanalysis.com/quote/bvb/alr/financials/", "category": "distributor"},
+
     #supplier
     "SEOJIN": {"name": "Seojin", "url": "https://stockanalysis.com/stocks/seojin/financials/ratios/", "category": "supplier"},
     "ULTR": {"name": "Ultra", "url": "https://stockanalysis.com/stocks/uctt/financials/ratios/", "category": "supplier"},
     "FOX": {"name": "Foxconn", "url": "https://stockanalysis.com/stocks/hnhaf/financials/ratios/", "category": "supplier"},
     "FERRO": {"name": "Ferrotec", "url": "https://stockanalysis.com/stocks/frtcf/financials/ratios/", "category": "supplier"},
     "BHE": {"name": "Benchmark", "url": "https://stockanalysis.com/stocks/bhe/financials/ratios/", "category": "supplier"},
-    "CLS": {"name": "Celestica", "url": "https://stockanalysis.com/stocks/clst/financials/ratios/", "category": "supplier"},
+    "CLS": {"name": "Celestica", "url": "https://stockanalysis.com/stocks/cls/financials/ratios/", "category": "supplier"},
     "JABIL": {"name": "Jabil", "url": "https://stockanalysis.com/stocks/jbl/financials/ratios/", "category": "supplier"},
     "FLEX": {"name": "Flex", "url": "https://stockanalysis.com/stocks/flex/financials/ratios/", "category": "supplier"},
     "MKS": {"name": "MKS", "url": "https://stockanalysis.com/stocks/mksi/financials/ratios/", "category": "supplier"},
@@ -46,6 +46,7 @@ def fetch_ratios(symbol, url):
     headers = {"User-Agent": "Mozilla/5.0"}
     html = None
 
+    # 若抓不到 ratios，自動改抓 financials
     for attempt in range(5):
         try:
             r = requests.get(url, headers=headers, timeout=25)
@@ -55,6 +56,15 @@ def fetch_ratios(symbol, url):
         except Exception:
             pass
         time.sleep(3)
+
+    if not html and "ratios" in url:
+        alt_url = url.replace("/ratios/", "/")
+        try:
+            r = requests.get(alt_url, headers=headers, timeout=25)
+            if r.status_code == 200 and "<table" in r.text:
+                html = r.text
+        except Exception:
+            pass
 
     if not html:
         return None
@@ -100,66 +110,3 @@ def fetch_ratios(symbol, url):
     df["Date_1"] = df["Date_1"].apply(clean_date)
     df = df.loc[:, ~df.columns.duplicated()].fillna("")
     return df
-
-
-# -------------------------------------------------------
-# 抓取 Z/F Score
-# -------------------------------------------------------
-def fetch_scores(symbol):
-    if symbol == "NHY":
-        url = "https://stockanalysis.com/quote/osl/NHY/statistics/"
-    else:
-        url = f"https://stockanalysis.com/stocks/{symbol.lower()}/statistics/"
-    headers = {"User-Agent": "Mozilla/5.0"}
-
-    try:
-        r = requests.get(url, headers=headers, timeout=20)
-        if r.status_code != 200:
-            return {"Altman Z-Score": "", "Piotroski F-Score": ""}
-        df = pd.concat(pd.read_html(r.text), ignore_index=True)
-        df.columns = ["Metric", "Value"]
-        z = df[df["Metric"].str.contains("Altman Z", na=False)]["Value"].values
-        f = df[df["Metric"].str.contains("Piotroski F", na=False)]["Value"].values
-        return {
-            "Altman Z-Score": z[0] if len(z) else "",
-            "Piotroski F-Score": f[0] if len(f) else ""
-        }
-    except Exception:
-        return {"Altman Z-Score": "", "Piotroski F-Score": ""}
-
-
-# -------------------------------------------------------
-# 主程式：整合成單一表 + 過濾 "Upgrade"
-# -------------------------------------------------------
-all_data = []
-
-for t, info in TICKERS.items():
-    print(f"🔍 抓取 {info['name']} ({t}) ...")
-    ratios = fetch_ratios(t, info["url"])
-    scores = fetch_scores(t)
-
-    if ratios is None or ratios.empty:
-        ratios = pd.DataFrame(columns=["Date_1", "EBITDA", "Debt / Equity Ratio", "Inventory Turnover", "Current Ratio"])
-
-    ratios["Ticker"] = t
-    ratios["Altman Z-Score"] = scores.get("Altman Z-Score", "")
-    ratios["Piotroski F-Score"] = scores.get("Piotroski F-Score", "")
-    ratios["Category"] = info["category"]
-    all_data.append(ratios)
-
-final_df = pd.concat(all_data, ignore_index=True)
-
-# 🔹 移除任何含有 "Upgrade" 的列
-final_df = final_df[~final_df.apply(lambda row: row.astype(str).str.contains("Upgrade", case=False).any(), axis=1)]
-
-# 🔹 固定欄位順序
-final_cols = ["Date_1", "EBITDA", "Debt / Equity Ratio", "Inventory Turnover",
-              "Current Ratio", "Ticker", "Altman Z-Score", "Piotroski F-Score", "Category"]
-final_df = final_df[[c for c in final_cols if c in final_df.columns]]
-
-# -------------------------------------------------------
-# 輸出 Excel
-# -------------------------------------------------------
-output_file = "Stock_Risk_Scores.xlsx"
-final_df.to_excel(output_file, index=False)
-print(f"✅ 已輸出乾淨版 Stock_Risk_Scores.xlsx（無 Upgrade 列）")
