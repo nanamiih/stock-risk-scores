@@ -1,5 +1,5 @@
 import pandas as pd
-import requests, re, time
+import requests, re, time, os
 from bs4 import BeautifulSoup
 from datetime import datetime
 
@@ -46,7 +46,6 @@ def fetch_ratios(symbol, url):
     headers = {"User-Agent": "Mozilla/5.0"}
     html = None
 
-    # 若抓不到 ratios，自動改抓 financials
     for attempt in range(5):
         try:
             r = requests.get(url, headers=headers, timeout=25)
@@ -57,7 +56,8 @@ def fetch_ratios(symbol, url):
             pass
         time.sleep(3)
 
-    if not html and "ratios" in url:
+    # 若 ratios 抓不到，自動換成 /financials/
+    if not html and "/ratios/" in url:
         alt_url = url.replace("/ratios/", "/")
         try:
             r = requests.get(alt_url, headers=headers, timeout=25)
@@ -110,3 +110,73 @@ def fetch_ratios(symbol, url):
     df["Date_1"] = df["Date_1"].apply(clean_date)
     df = df.loc[:, ~df.columns.duplicated()].fillna("")
     return df
+
+
+# -------------------------------------------------------
+# 抓取 Z/F Score
+# -------------------------------------------------------
+def fetch_scores(symbol):
+    if symbol == "NHY":
+        url = "https://stockanalysis.com/quote/osl/NHY/statistics/"
+    else:
+        url = f"https://stockanalysis.com/stocks/{symbol.lower()}/statistics/"
+    headers = {"User-Agent": "Mozilla/5.0"}
+
+    try:
+        r = requests.get(url, headers=headers, timeout=20)
+        if r.status_code != 200:
+            return {"Altman Z-Score": "", "Piotroski F-Score": ""}
+        df = pd.concat(pd.read_html(r.text), ignore_index=True)
+        df.columns = ["Metric", "Value"]
+        z = df[df["Metric"].str.contains("Altman Z", na=False)]["Value"].values
+        f = df[df["Metric"].str.contains("Piotroski F", na=False)]["Value"].values
+        return {
+            "Altman Z-Score": z[0] if len(z) else "",
+            "Piotroski F-Score": f[0] if len(f) else ""
+        }
+    except Exception:
+        return {"Altman Z-Score": "", "Piotroski F-Score": ""}
+
+
+# -------------------------------------------------------
+# 主程式：整合成單一表 + 輸出
+# -------------------------------------------------------
+all_data = []
+
+for t, info in TICKERS.items():
+    print(f"🔍 抓取 {info['name']} ({t}) ...")
+    ratios = fetch_ratios(t, info["url"])
+    scores = fetch_scores(t)
+
+    if ratios is None or ratios.empty:
+        print(f"⚠️ {info['name']} ({t}) 沒抓到資料")
+        ratios = pd.DataFrame(columns=["Date_1", "EBITDA", "Debt / Equity Ratio", "Inventory Turnover", "Current Ratio"])
+
+    ratios["Ticker"] = t
+    ratios["Altman Z-Score"] = scores.get("Altman Z-Score", "")
+    ratios["Piotroski F-Score"] = scores.get("Piotroski F-Score", "")
+    ratios["Category"] = info["category"]
+    all_data.append(ratios)
+
+final_df = pd.concat(all_data, ignore_index=True)
+
+print("\n📊 抓取完成，以下是各公司資料筆數：")
+for t in final_df["Ticker"].unique():
+    count = len(final_df[final_df["Ticker"] == t])
+    print(f" - {t}: {count} rows")
+
+# 🔹 移除任何含有 "Upgrade" 的列
+final_df = final_df[~final_df.apply(lambda row: row.astype(str).str.contains("Upgrade", case=False).any(), axis=1)]
+
+# 🔹 固定欄位順序
+final_cols = ["Date_1", "EBITDA", "Debt / Equity Ratio", "Inventory Turnover",
+              "Current Ratio", "Ticker", "Altman Z-Score", "Piotroski F-Score", "Category"]
+final_df = final_df[[c for c in final_cols if c in final_df.columns]]
+
+# -------------------------------------------------------
+# 輸出 Excel
+# -------------------------------------------------------
+output_file = "Stock_Risk_Scores.xlsx"
+final_df.to_excel(output_file, index=False)
+print(f"\n✅ 已輸出乾淨版 Stock_Risk_Scores.xlsx（無 Upgrade 列）")
+print("📁 輸出位置：", os.path.abspath(output_file))
