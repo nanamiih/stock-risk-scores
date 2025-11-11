@@ -7,18 +7,18 @@ from datetime import datetime
 # 公司代碼與分類
 # -------------------------------------------------------
 TICKERS = {
-    #mills
+    # mills
     "AA": {"name": "Alcoa", "url": "https://stockanalysis.com/stocks/aa/financials/ratios/", "category": "mills"},
     "RIO": {"name": "Rio Tinto", "url": "https://stockanalysis.com/stocks/rio/financials/ratios/", "category": "mills"},
     "NHY": {"name": "Norsk Hydro", "url": "https://stockanalysis.com/quote/osl/NHY/financials/ratios/", "category": "mills"},
 
-    #distributors
+    # distributors
     "RS": {"name": "Reliance", "url": "https://stockanalysis.com/stocks/rs/financials/ratios/", "category": "distributor"},
     "KALU": {"name": "Kaiser", "url": "https://stockanalysis.com/stocks/kalu/financials/ratios/", "category": "distributor"},
     "RYI": {"name": "Ryerson", "url": "https://stockanalysis.com/stocks/ryi/financials/ratios/", "category": "distributor"},
     "BVB:ALR": {"name": "Alro Steel", "url": "https://stockanalysis.com/quote/bvb/alr/financials/", "category": "distributor"},
 
-    #supplier
+    # supplier
     "SEOJIN": {"name": "Seojin", "url": "https://stockanalysis.com/stocks/seojin/financials/ratios/", "category": "supplier"},
     "ULTR": {"name": "Ultra", "url": "https://stockanalysis.com/stocks/uctt/financials/ratios/", "category": "supplier"},
     "FOX": {"name": "Foxconn", "url": "https://stockanalysis.com/stocks/hnhaf/financials/ratios/", "category": "supplier"},
@@ -38,7 +38,6 @@ TARGET = {
     "Current Ratio": "Current Ratio"
 }
 
-
 # -------------------------------------------------------
 # 讀取財報比率
 # -------------------------------------------------------
@@ -56,7 +55,6 @@ def fetch_ratios(symbol, url):
             pass
         time.sleep(3)
 
-    # 若 ratios 抓不到，自動換成 /financials/
     if not html and "/ratios/" in url:
         alt_url = url.replace("/ratios/", "/")
         try:
@@ -111,7 +109,6 @@ def fetch_ratios(symbol, url):
     df = df.loc[:, ~df.columns.duplicated()].fillna("")
     return df
 
-
 # -------------------------------------------------------
 # 抓取 Z/F Score
 # -------------------------------------------------------
@@ -137,7 +134,6 @@ def fetch_scores(symbol):
     except Exception:
         return {"Altman Z-Score": "", "Piotroski F-Score": ""}
 
-
 # -------------------------------------------------------
 # 主程式：整合成單一表 + 輸出
 # -------------------------------------------------------
@@ -152,7 +148,8 @@ for t, info in TICKERS.items():
         print(f"⚠️ {info['name']} ({t}) 沒抓到資料")
         ratios = pd.DataFrame(columns=["Date_1", "EBITDA", "Debt / Equity Ratio", "Inventory Turnover", "Current Ratio"])
 
-    ratios["Ticker"] = t
+    # 改成顯示公司名稱
+    ratios["Company"] = info["name"]
     ratios["Altman Z-Score"] = scores.get("Altman Z-Score", "")
     ratios["Piotroski F-Score"] = scores.get("Piotroski F-Score", "")
     ratios["Category"] = info["category"]
@@ -161,16 +158,16 @@ for t, info in TICKERS.items():
 final_df = pd.concat(all_data, ignore_index=True)
 
 print("\n📊 抓取完成，以下是各公司資料筆數：")
-for t in final_df["Ticker"].unique():
-    count = len(final_df[final_df["Ticker"] == t])
-    print(f" - {t}: {count} rows")
+for c in final_df["Company"].unique():
+    count = len(final_df[final_df["Company"] == c])
+    print(f" - {c}: {count} rows")
 
 # 🔹 移除任何含有 "Upgrade" 的列
 final_df = final_df[~final_df.apply(lambda row: row.astype(str).str.contains("Upgrade", case=False).any(), axis=1)]
 
 # 🔹 固定欄位順序
 final_cols = ["Date_1", "EBITDA", "Debt / Equity Ratio", "Inventory Turnover",
-              "Current Ratio", "Ticker", "Altman Z-Score", "Piotroski F-Score", "Category"]
+              "Current Ratio", "Company", "Altman Z-Score", "Piotroski F-Score", "Category"]
 final_df = final_df[[c for c in final_cols if c in final_df.columns]]
 
 # -------------------------------------------------------
