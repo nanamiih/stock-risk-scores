@@ -170,6 +170,26 @@ final_cols = ["Date_1", "EBITDA", "Debt / Equity Ratio", "Inventory Turnover",
               "Current Ratio", "Company", "Altman Z-Score", "Piotroski F-Score", "Category"]
 final_df = final_df[[c for c in final_cols if c in final_df.columns]]
 
+
+# -------------------------------------------------------
+# 先把 Z-score 轉成數值
+final_df["Altman Z-Score"] = pd.to_numeric(final_df["Altman Z-Score"], errors="coerce")
+
+# 使用你提供的分界設定
+def classify_z_risk(z):
+    if pd.isna(z):
+        return ""
+    if z > 2.99:
+        return "Low risk"
+    elif z >= 1.81:
+        return "Medium risk"
+    else:
+        return "High risk"
+
+final_df["Risk Level"] = final_df["Altman Z-Score"].apply(classify_z_risk)
+
+
+
 # -------------------------------------------------------
 # 輸出 Excel
 # -------------------------------------------------------
