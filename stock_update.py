@@ -20,7 +20,7 @@ TICKERS = {
 
     # supplier
     "SEOJIN": {"name": "Seojin", "url": "https://stockanalysis.com/stocks/seojin/financials/ratios/", "category": "supplier"},
-    "ULTR": {"name": "Ultra", "url": "https://stockanalysis.com/stocks/uctt/financials/ratios/", "category": "supplier"},
+    "UCTT": {"name": "Ultra", "url": "https://stockanalysis.com/stocks/uctt/financials/ratios/", "category": "supplier"},
     "FOX": {"name": "Foxconn", "url": "https://stockanalysis.com/stocks/hnhaf/financials/ratios/", "category": "supplier"},
     "FERRO": {"name": "Ferrotec", "url": "https://stockanalysis.com/stocks/frtcf/financials/ratios/", "category": "supplier"},
     "BHE": {"name": "Benchmark", "url": "https://stockanalysis.com/stocks/bhe/financials/ratios/", "category": "supplier"},
